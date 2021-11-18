@@ -1,76 +1,48 @@
-//Libraries///////////////////////////////////////////////////////////////////// 
-#include <EEPROM.h> 
-#include <SoftwareSerial.h> 
-#include <LiquidCrystal.h> 
+//Required Libraries//
+#include <LiquidCrystal.h> //For LCD
+#include <EEPROM.h>        //For EEPROM
+#include <SoftwareSerial.h> //For GSM
 
-SoftwareSerial SIM900(8, 9);
+LiquidCrystal lcd(2, 3, 4, 5, 6, 7);  //LCD is connected to 2,3,4,5,6,7 pins of arduino
+SoftwareSerial SIM900(10, 9);  //GSM is connected to 10,9 pins of arduino 
 
-LiquidCrystal lcd(2, 3, 4, 5, 6, 7); //Suplementary variables and constants/////////////////////////////////////// 
+char inchar; //It will hold the incoming character from GSM shield
 
-float Voltage1 = A0;           //Defining and initializing the voltage
-float Current1 = A1;          // Defining and initializing the current
+float Voltage1 = A0;    //Voltmeter is connected to A0 pin of arduino
+float Current1 = A1;    //Ammeter is connected to A1 pin of arduino
 
 
-float I1 = 0;
-float V1 = 0;
+float I1 = 0; //Defining current variable for LCD
+int V1 = 0;  //Defining voltage variable for LCD
 
-double energyCount; 
-double powerCount;
-double sum_inst_power;
-double inst_power=0;
-double prs;
-double unt;
-double con1;
-double con2;
-double energy;
-double power;
- 
-const float frequencyPerKiloWatt = 0.8889 ; 
+int out1=8; //Relay is connected to pin 8 of arduino for connecting/disconnecting load
 
-int contactor=  10; 
-int buzzer = 13;
+int power; //Defining power variable 
+int energy; //Defining energy variable
 
-float recharged_amount =0.00f ; 
-float remaining_units = 0.00f ; 
-float total_consumption = 00.00f ; 
-float monthly_consumption=0.00f; 
-float last_recharge = 0.00f; 
-float averagePower =0.00f; 
-float temp_recharged=0.00f; //Unused variables//////////////////////////////////////////////////////////////////////////////// 
-float supply_pf=1; //variables related to string decode//////////////////////////////////////////////////////////// 
-int mon_reset=0; 
+int unt=0; //Defining and initialising unit(kwh) variable
+int prs=0; //Defining and initialising price variable
 
-int n1 = 1; 
-int n2 = 1; 
-int d = 1; 
-int r = 1; 
-int t=1; 
-long time_int=0; //Notifications//////////////////////////////////////////////////////////////////// 
+int p1=0;
+int p2=0;
 
-char inchar; // Will hold the incoming character from the GSM shield
+int con1=0;
+int con2=0;
 
-#define addr_recharged_amount 0 
-#define addr_remaining_units 4 
-#define addr_total_consumption 8 
-#define addr_last_recharge 12 
-#define addr_monthly_consumption 16 
-#define addr_energy_count 20 //////////////////////////////////////////////////////////////////////////////////////////// 
-
-long milisec = millis(); // calculate time in milliseconds
-long time=milisec/1000; // convert milliseconds to seconds
+int buz=13; //Buzzer is connected to pin 13 of arduino
 
 void setup()
 { 
+  SIM900.begin(9600);  //Start GSM
+  Serial.begin(9600);  //Start Arduino
 
   pinMode(Voltage1,INPUT);        //Set voltage as input pin
   pinMode(Current1,INPUT);        //Set current as input pin
   
-  SIM900.begin(9600); 
-  Serial.begin(9600); 
-  delay(100); 
-  pinMode(contactor,OUTPUT); 
-  pinMode(buzzer,OUTPUT); 
+  pinMode(out1,OUTPUT);  //Set relay as output pin
+  pinMode(buz,OUTPUT);   //Set buzzer as output pin
   
+  #Displaying welcome message on LCD
   lcd.begin(20, 4);
   lcd.clear();
   lcd.setCursor(6,1);
@@ -78,7 +50,8 @@ void setup()
   lcd.setCursor(5,2);
   lcd.print("Energy Meter");
  
-  SIM900.print("AT\r\n");  // set SMS mode to text
+  #Setting GSM Module
+  SIM900.print("AT\r\n");  // Check communication
   delay(1000);
   SIM900.print("AT+CMGF=1\r\n");  // set SMS mode to text
   delay(1000);
@@ -90,13 +63,25 @@ void setup()
   delay(500);
   SIM900.write(byte(26)); // (signals end of message)
   delay(1000);
-  SIM900.println("AT+CMGD=1,4\r\n"); // delete all SM
+  SIM900.println("AT+CMGD=1,4\r\n"); // delete all SMS
   delay(500);
-  readfromEEPROM(); 
-  } ////////////////////////////////////////////////////////////////////////////////////// 
+  digitalWrite(buz,LOW); //Turn buzzer off
+  lcd.clear();
+  
+  //Reading stored values from EEPROM
+  unt = EEPROM.read(2); 
+  p2 = EEPROM.read(0);
+  prs = EEPROM.read(1);
+  
+  //Turning relay ON if available unit is greater than 0
+  if(unt>0){digitalWrite(out1.high)}
+  
+  }
+   
+   
+  //Recharging through GSM
   void loop() 
   {
-  //If a character comes in from the cellular module...
   if(SIM900.available() >0)
   {
     inchar=SIM900.read(); 
@@ -104,108 +89,102 @@ void setup()
     {
  
       delay(10);
-    inchar=SIM900.read(); 
-      if (inchar=='U')
+      inchar=SIM900.read(); 
+      if (inchar=='1') //Send code R1 for 100 recharge in which you will get 20 units
       {
-        delay(10);
-        inchar=SIM900.read();
-        if (inchar=='1')
-        {
-       sim1();
-       delay(1000);
-       SIM900.println("Recharge Card 100"); // Message contents
-       delay(500);
-       SIM900.write(byte(26)); // (signals end of message)
-       delay(500);  
-        digitalWrite(contactor,HIGH); 
-       prs = prs+100;
-       unt = prs/5;
-       con1=0;
-       con2=0;
+         sim1();
+         delay(1000);
+         SIM900.println("Recharge Card 100"); // Message contents
+         delay(500);
+         SIM900.write(byte(26)); // (signals end of message)
+         delay(500);  
+         digitalWrite(out1,HIGH); 
+         prs = prs+100;
+         unt = prs/5;
+         con1=0;
+         con2=0;
         }
-        else if (inchar=='2')
+        else if (inchar=='2') //Send code R2 for 200 recharge in which you will get 40 units
         {
-       sim1();
-       delay(1000);
-       SIM900.println("Recharge Card 200"); // Message contents
-       delay(500);
-       SIM900.write(byte(26)); // (signals end of message)
-       delay(500);     
-        digitalWrite(contactor,HIGH); 
-       prs = prs+200;
-       unt = prs/5;
-       con1=0;
-       con2=0;
-        }
-        else if (inchar=='3')
-        {
-       sim1();
-       delay(1000);
-       SIM900.println("Recharge Card 300"); // Message contents
-       delay(500);
-       SIM900.write(byte(26)); // (signals end of message)
-       delay(500);   
-        digitalWrite(contactor,HIGH); 
-       prs = prs+300;
-       unt = prs/5;
-       con1=0;
-       con2=0;
-        }
-         else if (inchar=='4')
-        {
-        sim1();
-       delay(1000);
-       SIM900.println("Recharge Card 400"); // Message contents
-       delay(500);
-       SIM900.write(byte(26)); // (signals end of message)
-       delay(500);  
-        digitalWrite(contactor,HIGH); 
-       prs = prs+400;
-       unt = prs/5;
-       con1=0;
-       con2=0;
-        }
-           else if (inchar=='4')
-        {
-       sim1();
-       delay(1000);
-       SIM900.println("Recharge Card 500"); // Message contents
-       delay(500);
-       SIM900.write(byte(26)); // (signals end of message)
-       delay(500);    
-        digitalWrite(contactor,HIGH); 
-       prs = prs+500;
-       unt = prs/5;
-       con1=0;
-       con2=0;
-        }
-   else if (inchar=='D')
-        {
-       sim1();
-       delay(1000);
-       SIM900.print("Unit="); // Message contents
-       SIM900.println(unt); // Message contents
-       SIM900.print("Price="); // Message contents
-       SIM900.println(prs); // Message contents
-       SIM900.print("Energy="); // Message contents
-       SIM900.println(energy); // Message contents
-       SIM900.print("Power="); // Message contents
-       SIM900.println(power); // Message contents
-       delay(500);
-       SIM900.write(byte(26)); // (signals end of message)
-       delay(500);    
-
-       con1=0;
-       con2=0;
-        }
-        delay(10);
-       SIM900.println("AT+CMGD=1"); // delete all SMS
+          sim1();
+          delay(1000);
+          SIM900.println("Recharge Card 200"); // Message contents
+          delay(500);
+          SIM900.write(byte(26)); // (signals end of message)
+          delay(500);     
+          digitalWrite(out1,HIGH); 
+          prs = prs+200;
+          unt = prs/5;
+          con1=0;
+          con2=0;
+         }
+         else if (inchar=='3') //Send code R3 for 300 recharge in which you will get 60 units
+         {
+           sim1();
+           delay(1000);
+           SIM900.println("Recharge Card 300"); // Message contents
+           delay(500);
+           SIM900.write(byte(26)); // (signals end of message)
+           delay(500);   
+           digitalWrite(out1,HIGH); 
+           prs = prs+300;
+           unt = prs/5;
+           con1=0;
+           con2=0;
+          }
+          else if (inchar=='4') //Send code R4 for 400 recharge in which you will get 80 units
+           {
+            sim1();
+            delay(1000);
+            SIM900.println("Recharge Card 400"); // Message contents
+            delay(500);
+            SIM900.write(byte(26)); // (signals end of message)
+            delay(500);  
+            digitalWrite(out1,HIGH); 
+            prs = prs+400;
+            unt = prs/5;
+            con1=0;
+            con2=0;
+           }
+           else if (inchar=='5') //Send code R5 for 500 recharge in which you will get 100 units
+           {
+            sim1();
+            delay(1000);
+            SIM900.println("Recharge Card 500"); // Message contents
+            delay(500);
+            SIM900.write(byte(26)); // (signals end of message)
+            delay(500);    
+            digitalWrite(out1,HIGH); 
+            prs = prs+500;
+            unt = prs/5;
+            con1=0;
+            con2=0;
+           }
+           else if (inchar=='D') //Send code RD for getting details about unit,price,energy,power
+           {
+            sim1();
+            delay(1000);
+            SIM900.print("Unit="); // Message contents
+            SIM900.println(unt); // Message contents
+            SIM900.print("Price="); // Message contents
+            SIM900.println(prs); // Message contents
+            SIM900.print("Energy="); // Message contents
+            SIM900.println(energy); // Message contents
+            SIM900.print("Power="); // Message contents
+            SIM900.println(power); // Message contents
+            delay(500);
+            SIM900.write(byte(26)); // (signals end of message)
+            delay(500);    
+            con1=0;
+            con2=0;
+           }
+           delay(10);
+           SIM900.println("AT+CMGD=1"); // delete all SMS
       
       }
     }
   }
-
-     
+   
  for (int n=0;n<1000;n++)
   {
   V1= ((analogRead(Voltage1)*(4.5/1023)*60));
@@ -368,5 +347,5 @@ void writeEngDataGSM()
 
 void sim1()  
 {
-SIM900.println("AT+CMGS=\"+923378655465\"\r\n"); // Sends message  1  
+SIM900.println("AT+CMGS=\"1234567890\"\r\n"); // Sends message  1  
 }
